@@ -6,7 +6,12 @@ packages = (
   stow,
   starship,
   ghostty,
-  tmux
+  tmux,
+  dysk,
+  fuzzy,
+  harpoon,
+  nvim,
+  yazi,
   )
 
 for package in ${packages[@]}; do

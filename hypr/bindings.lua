@@ -3,7 +3,7 @@ o.bind("SUPER + RETURN", "Terminal", { omarchy = "terminal" })
 o.bind("SUPER + ALT + RETURN", "Tmux", { omarchy = "terminal-tmux" })
 o.bind("SUPER + SHIFT + RETURN", "Browser", { omarchy = "browser" })
 o.bind("SUPER + SHIFT + F", "File manager", { omarchy = "nautilus" })
-o.bind("SUPER + ALT + SHIFT + F", "File manager (cwd)", { omarchy = "nautilus-cwd" })
+o.bind("SUPER + ALT + ALT + F", "File manager (cwd)", { omarchy = "nautilus-cwd" })
 o.bind("SUPER + SHIFT + B", "Browser", { omarchy = "browser" })
 o.bind("SUPER + SHIFT + ALT + B", "Browser (private)", { omarchy = "browser --private" })
 o.bind("SUPER + SHIFT + M", "Music", { omarchy = "or-focus spotify" })
@@ -29,6 +29,7 @@ o.bind("SUPER + SHIFT + ALT + X", "X Post", { webapp = "https://x.com/compose/po
 
 -- Add extra bindings below.
 -- o.bind("SUPER + SHIFT + R", "SSH", "alacritty -e ssh your-server")
+o.bind("SUPER + SHIFT + Y", "Yazi", { tui = "yazi" })
 
 -- Overwrite existing bindings with hl.unbind() first if needed.
 -- hl.unbind("SUPER + SPACE")
@@ -38,12 +39,6 @@ o.bind("SUPER + SHIFT + P", "Pavucontrol", { launch = "pavucontrol" })
 
 o.unbind("CTRL + RETURN")
 o.bind("ctrl + return", { flags = { "non_consuming" } })
-
--- moving bindings
-o.bind("SUPER + h", hl.dsp.focus({ direction = "left" }))
-o.bind("SUPER + l", hl.dsp.focus({ direction = "right" }))
-o.bind("SUPER + j", hl.dsp.focus({ direction = "down" }))
-o.bind("SUPER + k", hl.dsp.focus({ direction = "up" }))
 
 -- Logitech MX Keys examples:
 -- o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
