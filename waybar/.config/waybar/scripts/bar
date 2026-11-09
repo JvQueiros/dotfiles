@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# Everything the bar runs goes through here, so config.jsonc stays the same on
+# every system: each command prefers Omarchy's tool and falls back to a generic
+# one. Set BAR_PLATFORM=generic to exercise the fallbacks on an Omarchy machine.
+
+set -u
+
+waybar_dir="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+
+icon_brightness=$'\UF00E0'
+icon_clock=$'\UF0150'
+icon_coffee=$'\UF0176'
+icon_record=$'\UF0EC2'
+icon_silenced=$'\UF009B'
+
+on_omarchy() {
+  [[ "${BAR_PLATFORM:-}" != "generic" ]] && command -v omarchy-shell >/dev/null
+}
+
+has() {
+  command -v "$1" >/dev/null
+}
+
+# Waybar's custom modules read one JSON object per update.
+emit() {
+  jq -cn --arg text "$1" --arg tooltip "${2:-}" --arg class "${3:-}" \
+    '{text: $text, tooltip: $tooltip, class: $class}'
+}
+
+terminal() {
+  if has xdg-terminal-exec; then
+    setsid -f xdg-terminal-exec "$@" >/dev/null 2>&1
+  elif has x-terminal-emulator; then
+    setsid -f x-terminal-emulator -e "$@" >/dev/null 2>&1
+  else
+    notify "No terminal found to run: $*"
+  fi
+}
+
+notify() {
+  has notify-send && notify-send -u low "Waybar" "$1"
+}
+
+# True when Omarchy's shell opened the panel, so callers can fall back otherwise.
+panel() {
+  on_omarchy && omarchy-shell shell toggle "omarchy.$1" >/dev/null 2>&1
+}
+
+# Colors live in a generated file because the theme differs on every machine.
+# Writing only on change matters: reload_style_on_change reloads on every write.
+theme() {
+  local colors="$HOME/.local/state/omarchy/current/theme/colors.toml"
+  local background="#1a1b26" foreground="#c0caf5" value content target="$waybar_dir/theme.css"
+
+  if on_omarchy && [[ -r "$colors" ]]; then
+    value=$(sed -n 's/^background *= *"\(#[0-9a-fA-F]*\)".*/\1/p' "$colors")
+    background="${value:-$background}"
+    value=$(sed -n 's/^foreground *= *"\(#[0-9a-fA-F]*\)".*/\1/p' "$colors")
+    foreground="${value:-$foreground}"
+  fi
+
+  content="@define-color background $background;
+@define-color foreground $foreground;"
+
+  if [[ ! -f "$target" || "$(cat "$target")" != "$content" ]]; then
+    printf '%s\n' "$content" > "$target.tmp" && mv "$target.tmp" "$target"
+  fi
+}
+
+weather() {
+  local status text=""
+
+  if on_omarchy; then
+    status=$(omarchy-weather-status 2>/dev/null)
+    text=$(sed -n 's/.*Temp \([^ ]*\).*/\1/p' <<<"$status")
+    text="$(omarchy-weather-icon 2>/dev/null) $text"
+  elif has curl; then
+    status=$(curl -fsS -m 5 'https://wttr.in/?format=%l:+%C+%t+%w' 2>/dev/null)
+    text=$(curl -fsS -m 5 'https://wttr.in/?format=%c%t' 2>/dev/null)
+  fi
+
+  text="${text#"${text%%[![:space:]]*}"}"
+  if [[ -n "$text" ]]; then
+    emit "$text" "${status:-}"
+  else
+    emit "" "" "unavailable"
+  fi
+}
+
+# Shows one city at a time so the bar stays compact; the tooltip has them all.
+world_clocks() {
+  local cities=(
+    "SAO|Sao Paulo|America/Sao_Paulo"
+    "LON|London|Europe/London"
+    "DXB|Dubai|Asia/Dubai"
+    "TYO|Tokyo|Asia/Tokyo"
+    "LAX|Los Angeles|America/Los_Angeles"
+  )
+  local code name zone time city tooltip="" shown=""
+  local current=$(( $(date +%s) / 5 % ${#cities[@]} ))
+
+  for i in "${!cities[@]}"; do
+    IFS='|' read -r code name zone <<<"${cities[$i]}"
+    time=$(TZ="$zone" date +%H:%M)
+    city=$(printf '%-12s %s' "$name" "$time")
+    tooltip+="${tooltip:+$'\n'}<tt>$city</tt>"
+    if (( i == current )); then
+      shown="$icon_clock $code $time"
+    fi
+  done
+
+  emit "$shown" "$tooltip"
+}
+
+brightness_get() {
+  if on_omarchy; then
+    omarchy-brightness-display 2>/dev/null
+  elif has brightnessctl && brightnessctl -c backlight -m 2>/dev/null | grep -q .; then
+    brightnessctl -c backlight -m | cut -d, -f4 | tr -d '%'
+  elif has ddcutil; then
+    ddcutil getvcp 10 --brief 2>/dev/null | awk '{print $4}'
+  fi
+}
+
+# Takes the "+5%" / "5%-" forms that Omarchy and brightnessctl both understand.
+brightness_set() {
+  if on_omarchy; then
+    omarchy-brightness-display "$1" >/dev/null 2>&1
+  elif has brightnessctl && brightnessctl -c backlight -m 2>/dev/null | grep -q .; then
+    brightnessctl -q -c backlight set "$1"
+  elif has ddcutil; then
+    local step="${1//[^0-9]/}"
+    [[ "$1" == +* ]] && ddcutil setvcp 10 + "$step" || ddcutil setvcp 10 - "$step"
+  else
+    notify "Brightness control needs brightnessctl or ddcutil"
+  fi
+}
+
+brightness() {
+  if [[ $# -gt 0 ]]; then
+    brightness_set "$1"
+    return
+  fi
+
+  local level
+  level=$(brightness_get)
+  if [[ -n "$level" ]]; then
+    emit "$icon_brightness" "Brightness ${level}%  (scroll to change)"
+  else
+    emit "" "" "unavailable"
+  fi
+}
+
+recording() {
+  if { on_omarchy && omarchy-capture-screenrecording --status >/dev/null 2>&1; } ||
+     { ! on_omarchy && pgrep -x 'wf-recorder|gpu-screen-reco' >/dev/null; }; then
+    emit "$icon_record" "Screen recording in progress" "active"
+  else
+    emit "" "" ""
+  fi
+}
+
+# Holding a logind idle inhibitor is the portable equivalent of Omarchy's toggle.
+stay_awake_pidfile="$runtime_dir/waybar-stay-awake.pid"
+
+stay_awake_enabled() {
+  if on_omarchy; then
+    omarchy-toggle-idle status | jq -e .enabled >/dev/null
+  else
+    [[ -f "$stay_awake_pidfile" ]] && kill -0 "$(cat "$stay_awake_pidfile")" 2>/dev/null
+  fi
+}
+
+stay_awake_toggle() {
+  if on_omarchy; then
+    omarchy-toggle-idle >/dev/null
+  elif stay_awake_enabled; then
+    kill "$(cat "$stay_awake_pidfile")"
+    rm -f "$stay_awake_pidfile"
+  else
+    systemd-inhibit --what=idle --who=waybar --why="Stay awake" sleep infinity >/dev/null 2>&1 &
+    echo $! > "$stay_awake_pidfile"
+    disown
+  fi
+}
+
+stay_awake() {
+  if [[ "${1:-}" == "toggle" ]]; then
+    stay_awake_toggle
+  elif stay_awake_enabled; then
+    emit "$icon_coffee" "Staying awake (click to allow idle)" "active"
+  else
+    emit "$icon_coffee" "Click to stay awake" "inactive"
+  fi
+}
+
+silenced() {
+  if on_omarchy; then
+    [[ "$(omarchy-shell notifications isDnd 2>/dev/null)" == "on" ]]
+  elif has makoctl; then
+    makoctl mode | grep -q do-not-disturb
+  elif has dunstctl; then
+    [[ "$(dunstctl is-paused)" == "true" ]]
+  else
+    return 1
+  fi
+}
+
+silence() {
+  if [[ "${1:-}" == "toggle" ]]; then
+    if on_omarchy; then
+      omarchy-toggle-notification-silencing
+    elif has makoctl; then
+      makoctl mode -t do-not-disturb >/dev/null
+    elif has dunstctl; then
+      dunstctl set-paused toggle
+    fi
+  elif silenced; then
+    emit "$icon_silenced" "Notifications silenced" "active"
+  else
+    emit "" "" ""
+  fi
+}
+
+calendar() {
+  panel clock && return
+  has cal && notify "$(cal)"
+}
+
+case "${1:-}" in
+  theme) theme ;;
+  weather) weather ;;
+  world-clocks) world_clocks ;;
+  brightness) shift; brightness "$@" ;;
+  recording) recording ;;
+  stay-awake) shift; stay_awake "$@" ;;
+  silence) shift; silence "$@" ;;
+  calendar) calendar ;;
+  voxtype) has omarchy-voxtype-status && exec omarchy-voxtype-status ;;
+  record-toggle) on_omarchy && exec omarchy-capture-screenrecording ;;
+  weather-details) on_omarchy && notify "$(omarchy-weather-status)" ;;
+  network) panel network || terminal nmtui ;;
+  bluetooth) panel bluetooth || { has blueman-manager && setsid -f blueman-manager; } || terminal bluetoothctl ;;
+  audio) panel audio || { has pavucontrol && setsid -f pavucontrol; } || notify "Install pavucontrol for audio settings" ;;
+  monitor) if on_omarchy; then omarchy-launch-or-focus-tui btop; else terminal btop; fi ;;
+  terminal) terminal "${SHELL:-bash}" ;;
+  timezone) if on_omarchy; then omarchy menu timezone; else notify "Use timedatectl to change the timezone"; fi ;;
+  calendar-web)
+    url="https://calendar.google.com"
+    if has chromium; then setsid -f chromium --app="$url" >/dev/null 2>&1; else xdg-open "$url"; fi
+    ;;
+  *) echo "Usage: bar <command>" >&2; exit 1 ;;
+esac

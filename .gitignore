@@ -1,0 +1,3 @@
+# Generated and owned by Aether; absolute symlinks that stow refuses to link.
+hypr/.config/hypr/shaders/
+waybar/.config/waybar/theme.css
