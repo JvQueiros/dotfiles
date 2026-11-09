@@ -8,6 +8,7 @@ set -u
 waybar_dir="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 
+icon_agents=$'\UF16A3'
 icon_brightness=$'\UF00E0'
 icon_clock=$'\UF0150'
 icon_coffee=$'\UF0176'
@@ -65,6 +66,36 @@ theme() {
 
   if [[ ! -f "$target" || "$(cat "$target")" != "$content" ]]; then
     printf '%s\n' "$content" > "$target.tmp" && mv "$target.tmp" "$target"
+  fi
+}
+
+# Omarchy numbers workspaces in a block of ten per monitor (1-10, 11-20, ...), so
+# each monitor pins the first five of its own block and shows them as 1-5. Waybar
+# reads this once at startup, so the bar script must run before waybar does.
+workspaces() {
+  local state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/monitor-workspaces"
+  local target="$waybar_dir/workspaces.jsonc" content=""
+
+  if on_omarchy && [[ -s "$state" ]]; then
+    content=$(jq -Rn '
+      [inputs | split("\t") | select(length >= 2) | {block: (.[0] | tonumber), connector: .[1]}] as $rows
+      | {"hyprland/workspaces": {
+          "persistent-workspaces": ($rows | map(select(.connector != "")
+            | {key: .connector, value: [.block as $block | range(1; 6) | $block * 10 + .]}) | from_entries),
+          "format-icons": ($rows | map(.block as $block | range(1; 11)
+            | {key: ($block * 10 + . | tostring), value: (. % 10 | tostring)}) | from_entries)
+        }}' < "$state" 2>/dev/null)
+  fi
+
+  [[ -n "$content" ]] || content='{"hyprland/workspaces": {"persistent-workspaces": {"*": 5}}}'
+  printf '%s\n' "$content" > "$target.tmp" && mv "$target.tmp" "$target"
+}
+
+agents() {
+  if on_omarchy; then
+    emit "$icon_agents" "Agents"
+  else
+    emit "" "" "unavailable"
   fi
 }
 
@@ -230,6 +261,11 @@ calendar() {
 
 case "${1:-}" in
   theme) theme ;;
+  workspaces) workspaces ;;
+  agents) agents ;;
+  agents-panel) panel agents ;;
+  agents-refresh) on_omarchy && omarchy-shell omarchy.agents refresh >/dev/null 2>&1 ;;
+  agents-launch) on_omarchy && exec omarchy-agent --pick ;;
   weather) weather ;;
   world-clocks) world_clocks ;;
   brightness) shift; brightness "$@" ;;

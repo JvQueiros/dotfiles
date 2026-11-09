@@ -81,6 +81,7 @@ window#waybar {
   margin-right: 16px;
 }
 
+#custom-agents,
 #bluetooth {
   margin-right: 17px;
 }
@@ -178,6 +179,7 @@ tooltip {
 }
 
 .left #tray, .right #tray { margin: 0 0 16px 0; }
+.left #custom-agents, .right #custom-agents { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
 .left #bluetooth, .right #bluetooth { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
 .left #network, .right #network { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
 .left #custom-expand-icon, .right #custom-expand-icon { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
