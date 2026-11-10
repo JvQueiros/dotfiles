@@ -145,6 +145,7 @@ for code, arrow in pairs(right_shift_arrow_keys) do
   add("CTRL + SHIFT", tap_arrow(arrow, "CTRL"), " + Ctrl")
   add("ALT + SHIFT", tap_arrow(arrow, "ALT"), " + Alt")
   add("SUPER + SHIFT", hl.dsp.focus({ direction = direction_of[arrow] }), " + Super: focus")
+  add("SUPER + CTRL + SHIFT", o.workspaces.move_window_to_monitor(direction_of[arrow]), " + Super + Ctrl: move window to monitor")
 end
 set_right_shift_arrows(false)
 
