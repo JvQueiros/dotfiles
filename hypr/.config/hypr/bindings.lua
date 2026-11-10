@@ -112,13 +112,13 @@ local right_shift_arrow_keys = {
 }
 local right_shift_arrows = {}
 
--- Each press is a complete down/up pair with no modifiers, so the app sees a
--- plain arrow rather than Shift+arrow and no key can be left stuck down.
-local function tap_arrow(key)
+-- Each press is a complete down/up pair, so no key can be left stuck down.
+-- `mods` is forwarded to the app (e.g. CTRL for Ctrl+arrow); "" sends a plain arrow.
+local function tap_arrow(key, mods)
   return function()
-    hl.dispatch(hl.dsp.send_key_state({ mods = "", key = key, state = "down" }))
+    hl.dispatch(hl.dsp.send_key_state({ mods = mods or "", key = key, state = "down" }))
     hl.timer(function()
-      hl.dispatch(hl.dsp.send_key_state({ mods = "", key = key, state = "up" }))
+      hl.dispatch(hl.dsp.send_key_state({ mods = mods or "", key = key, state = "up" }))
     end, { timeout = 10, type = "oneshot" })
   end
 end
@@ -129,11 +129,22 @@ local function set_right_shift_arrows(enabled)
   end
 end
 
+-- Hyprland matches modifiers exactly, so each held-modifier combination needs its own bind.
+local direction_of = { Up = "u", Down = "d", Left = "l", Right = "r" }
 for code, arrow in pairs(right_shift_arrow_keys) do
+  local function add(mods, action, suffix)
+    table.insert(right_shift_arrows, hl.bind(mods .. " + " .. code, action, {
+      repeating = true,
+      description = "Arrow " .. arrow:lower() .. " (Right Shift" .. suffix .. ")",
+    }))
+  end
   table.insert(right_shift_arrows, hl.bind("SHIFT + " .. code, tap_arrow(arrow), {
     repeating = true,
     description = "Arrow " .. arrow:lower() .. " (Right Shift)",
   }))
+  add("CTRL + SHIFT", tap_arrow(arrow, "CTRL"), " + Ctrl")
+  add("ALT + SHIFT", tap_arrow(arrow, "ALT"), " + Alt")
+  add("SUPER + SHIFT", hl.dsp.focus({ direction = direction_of[arrow] }), " + Super: focus")
 end
 set_right_shift_arrows(false)
 
@@ -143,3 +154,15 @@ o.bind_hold("SHIFT + Shift_R", nil, function()
 end, nil, function()
   set_right_shift_arrows(false)
 end, { ignore_mods = true, non_consuming = true })
+
+-- Waybar replaces Omarchy's bar, so this toggles Waybar instead.
+o.rebind("SUPER + SHIFT + SPACE", "Toggle top bar", "pkill -SIGUSR1 waybar")
+
+-- Next monitor on ALT+SHIFT+TAB (was CTRL+ALT+TAB; replaces "previous window").
+hl.unbind("CTRL + ALT + TAB")
+o.rebind("ALT + SHIFT + TAB", "Focus on next monitor", hl.dsp.focus({ monitor = "+1" }))
+
+-- Swap: ALT+TAB = next monitor, ALT+SHIFT+TAB = next window.
+o.rebind("ALT + TAB", "Focus on next monitor", hl.dsp.focus({ monitor = "+1" }))
+o.rebind("ALT + SHIFT + TAB", "Focus on next window", hl.dsp.window.cycle_next())
+o.bind("ALT + SHIFT + TAB", "Reveal active window on top", hl.dsp.window.bring_to_top())
